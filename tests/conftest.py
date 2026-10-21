@@ -479,6 +479,11 @@ def _destructive_allowed(p: str) -> bool:
         return True
     if _under(p, os.path.join(_REPO, ".pytest_cache"), inclusive=True):
         return True
+    # pytest's cache provider builds .pytest_cache in a pytest-cache-files-*
+    # folder next to it, then renames it into place (or removes it).
+    rel = os.path.relpath(p, _REPO) if _under(p, _REPO) else ""
+    if rel.split(os.sep)[0].startswith("pytest-cache-files-"):
+        return True
     if "__pycache__" in p.split(os.sep):
         return True  # importlib's atomic .pyc writes
     if os.path.dirname(p) == _REPO and os.path.basename(p).startswith(".coverage"):
