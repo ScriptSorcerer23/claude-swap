@@ -130,6 +130,37 @@ class TestWindows:
         with pytest.raises(SessionError, match="not found on PATH"):
             ed.resolve_launcher(None, None)
 
+    def test_resolve_launcher_prefers_the_windows_own_bundle(self, monkeypatch, tmp_path):
+        # Cursor's shell command installs itself as `code` on PATH.
+        monkeypatch.setattr(ed.shutil, "which", lambda name: "/usr/local/bin/code")
+        monkeypatch.setattr(ed, "bundled_launcher", lambda pid, name: f"/VSC.app/bin/{name}")
+        vscode = _window(1, [], tmp_path)
+        assert ed.resolve_launcher(None, vscode) == "/VSC.app/bin/code"
+        assert ed.resolve_launcher("cursor", vscode) == "/usr/local/bin/code"  # --editor wins
+        monkeypatch.setattr(ed, "bundled_launcher", lambda pid, name: None)
+        assert ed.resolve_launcher(None, vscode) == "/usr/local/bin/code"
+
+    def test_bundled_launcher(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ed.sys, "platform", "darwin")
+        contents = tmp_path / "Code.app" / "Contents"
+        cli = contents / "Resources" / "app" / "bin" / "code"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("")
+        cli.chmod(0o755)
+        exe = contents / "MacOS" / "Code"
+        monkeypatch.setattr(
+            ed.subprocess, "run",
+            lambda *a, **k: SimpleNamespace(stdout=f"{exe}\n"),
+        )
+        assert ed.bundled_launcher(1, "code") == str(cli)
+        assert ed.bundled_launcher(1, "cursor") is None
+        monkeypatch.setattr(
+            ed.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="/usr/bin/python\n")
+        )
+        assert ed.bundled_launcher(1, "code") is None
+        monkeypatch.setattr(ed.sys, "platform", "win32")
+        assert ed.bundled_launcher(1, "code") is None
+
     def test_ide_names_for(self):
         assert ed.ide_names_for("/x/bin/code.cmd") == {"Visual Studio Code"}
         assert ed.ide_names_for("/x/vim") == set()

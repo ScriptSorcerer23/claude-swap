@@ -235,12 +235,39 @@ def default_folder(sessions_dir: Path, cwd: Path) -> Path:
     return cwd
 
 
+def bundled_launcher(pid: int, name: str) -> str | None:
+    """The CLI ``name`` inside the app bundle of editor process ``pid`` (macOS).
+
+    ``code`` on PATH is not always VS Code's: Cursor's "Install 'code'
+    command" takes the same name. The lockfile's pid is the editor's main
+    process, ``<App>.app/Contents/MacOS/<exe>``, and the bundle ships its own
+    CLI at ``Contents/Resources/app/bin/<name>``.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        exe = subprocess.run(
+            ["ps", "-o", "comm=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    contents = Path(exe).parent.parent
+    if contents.name != "Contents":
+        return None
+    cli = contents / "Resources" / "app" / "bin" / name
+    return str(cli) if os.access(cli, os.X_OK) else None
+
+
 def resolve_launcher(editor: str | None, here: EditorWindow | None) -> str:
     """Path of the editor CLI: ``--editor``, else the current window's, else ``code``."""
     name = editor or (
         EDITOR_LAUNCHERS.get(here.instance.ide_name) if here is not None else None
     ) or DEFAULT_LAUNCHER
-    path = which_no_cwd(name)
+    path = None
+    if editor is None and here is not None:
+        path = bundled_launcher(here.instance.pid, name)
+    path = path or which_no_cwd(name)
     if not path:
         raise SessionError(
             f"'{name}' was not found on PATH. Install the editor's shell "
